@@ -1,4 +1,7 @@
 **/__pycache__/
 ctgov_split/
 
+*.csv
+*.db
+
 .DS_Store
