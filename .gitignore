@@ -1,7 +1,10 @@
 **/__pycache__/
 ctgov_split/
 
-*.csv
 *.db
 
 .DS_Store
+
+openai_api_azure.key
+data/ms2/raw/train.json
+data/ms2/output_test.csv
