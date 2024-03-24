@@ -6,6 +6,12 @@ import openai
 import json
 from tqdm import tqdm
 from qdrant_client.models import Filter, FieldCondition
+from collections import defaultdict
+
+import os
+import sys
+sys.path.append('./')
+from src.utils.gpt_azure import gpt_chat_35
 
 tqdm.pandas()
 import pdb
@@ -71,6 +77,66 @@ def upload_records(filepath):
         ],
     )
 
+def decompe_query(query):
+    instruction_prompt = (
+        'Decompose the complex query into several parts which will be used for database search, '
+        'so that these parts can fully represent the query. '
+        'Also, the generated parts do not need to be exactly the same as the original query. '
+        'Instead, you can either rephrase the query or extract the most important information. '
+        'You should decompose the query in both sentence and keyword level.'
+        '\n\n'
+        'Query: {query}'
+        '\n\n'
+        'Now, please decompose the query into several parts and the output should follow the json format as'
+        ': sentences: [part1, part2, ...], keywords: [keyword1, keyword2, ...]'
+    )
+
+    deco_parts = gpt_chat_35(instruction_prompt, {'query': query})
+    # keywords = keywords.split(', ')
+
+    return deco_parts
+
+def get_pmid_score_dict(hits, topk):
+    pmid_score_dict = defaultdict(float)
+    hits_subset = hits[:topk]
+    for hit in hits_subset:
+        pmid = hit.payload['pmid']
+        score = hit.score
+        pmid_score_dict[pmid] += score
+
+    return pmid_score_dict
+
+
+def search_by_parts(part_query, topks):
+    query_vector = openai_client.embeddings.create(
+            input=[part_query],
+            model=embedding_model
+        ).data[0].embedding
+    
+    # first search by the vector
+    hits_vec = qdrant.search(
+        collection_name="clinical_trials_openai",
+        query_vector=query_vector,
+        limit=max(topks)  # Return 5 closest points
+    )
+
+    # # then search for keywords
+    # hits = qdrant.search(
+    #     collection_name="clinical_trials_openai",
+    #     query_vector=query_vector,
+    #     query_filter=Filter(
+    #         must=[  # These conditions are required for search results
+    #             FieldCondition(
+    #                 key='title',  # Condition based on values of `rand_number` field.
+    #                 match=models.MatchText(text="necrotizing enterocolitis"),
+    #             )
+    #         ]
+    #     ),
+    #     limit=max(topks)  # Return 5 closest points
+    # )
+
+    return hits_vec
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -85,8 +151,8 @@ if __name__=='__main__':
     
     topks = [20, 50, 100]
     
-    gt_counts = {}
-    pred_count = {}
+    gt_counts = defaultdict(int)
+    pred_count = defaultdict(int)
     for key, value in tqdm(test_data.items()):
         query = value['query']
         ground_truth = value['pmid']
@@ -96,31 +162,65 @@ if __name__=='__main__':
                 model=embedding_model
             ).data[0].embedding
 
-        hits_sim = qdrant.search(
+        hits_main = qdrant.search(
             collection_name="clinical_trials_openai",
             query_vector=query_vector,
             limit=max(topks),
         )
 
-        hits = qdrant.search(
-            collection_name="clinical_trials_openai",
-            query_vector=query_vector,
-            query_filter=Filter(
-                must=[  # These conditions are required for search results
-                    FieldCondition(
-                        key='title',  # Condition based on values of `rand_number` field.
-                        match=models.MatchText(text="necrotizing enterocolitis"),
-                    )
-                ]
-            ),
-            limit=max(topks)  # Return 5 closest points
-        )
-        pdb.set_trace()
+        # decompose the query into several keywords
+        STOP_SIGNAL = False
+        while not STOP_SIGNAL:
+            try:
+                deco_parts = decompe_query(query)
+                deco_parts = json.loads(deco_parts)
+                sentences_parts = deco_parts['sentences']
+                keywords_parts = deco_parts['keywords']
+                STOP_SIGNAL = True
+            except Exception as e:
+                continue
+        
+
+        hits_vecs_sent = []
+        for part_query in sentences_parts:
+            hits_vec = search_by_parts(part_query, topks)
+            hits_vecs_sent.extend(hits_vec)
+        
+        hits_vecs_word = []
+        for part_query in keywords_parts:
+            hits_vec = search_by_parts(part_query, topks)
+            hits_vecs_word.extend(hits_vec)
+        
+        
+
         for topk in topks:
-            if topk not in gt_counts:
-                gt_counts[topk] = 0
-                pred_count[topk] = 0
-            output = [hit.payload['pmid'] for hit in hits[:topk]]
+            scores_dict_merge = {}
+            scores_main = get_pmid_score_dict(hits_main, topk)
+            scores_sent = get_pmid_score_dict(hits_vecs_sent, topk)
+            scores_word = get_pmid_score_dict(hits_vecs_word, topk)
+
+            scores_dict_merge = {
+                'key': key,
+                'scores_main': scores_main,
+                'scores_sent': scores_sent,
+                'scores_word': scores_word
+            }
+
+            # save the dict row by row
+            with open(f'data/ms2/results/scores_dict_merge_{topk}.json', 'a') as f:
+                f.write(json.dumps(scores_dict_merge) + '\n')
+
+            # merge the scores by 1 * main + 0.2 * sent + 0.2 * word
+            scores_merge = defaultdict(float)
+            # the scores_merge should have keys from all the scores
+            for pmid in set(scores_main.keys()).union(set(scores_sent.keys())).union(set(scores_word.keys())):
+                scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] + \
+                    1.0 / len(hits_vecs_word) * scores_word[pmid]
+            
+            # sort the scores_merge, from high to low
+            scores_merge = dict(sorted(scores_merge.items(), key=lambda x: x[1], reverse=True))
+            
+            output = list(scores_merge.keys())[:topk]
             # calculate the recall
             recall = len(set(ground_truth).intersection(set(output)))
             gt_counts[topk] += min(len(ground_truth), topk)
