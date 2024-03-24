@@ -5,6 +5,8 @@ import argparse
 import openai
 import json
 from tqdm import tqdm
+from qdrant_client.models import Filter, FieldCondition
+
 tqdm.pandas()
 import pdb
 
@@ -88,15 +90,32 @@ if __name__=='__main__':
     for key, value in tqdm(test_data.items()):
         query = value['query']
         ground_truth = value['pmid']
+        
+        query_vector = openai_client.embeddings.create(
+                input=[query],
+                model=embedding_model
+            ).data[0].embedding
+
+        hits_sim = qdrant.search(
+            collection_name="clinical_trials_openai",
+            query_vector=query_vector,
+            limit=max(topks),
+        )
 
         hits = qdrant.search(
             collection_name="clinical_trials_openai",
-            query_vector=openai_client.embeddings.create(
-                input=[query],
-                model=embedding_model
-            ).data[0].embedding,
-            limit=max(topks),
+            query_vector=query_vector,
+            query_filter=Filter(
+                must=[  # These conditions are required for search results
+                    FieldCondition(
+                        key='title',  # Condition based on values of `rand_number` field.
+                        match=models.MatchText(text="necrotizing enterocolitis"),
+                    )
+                ]
+            ),
+            limit=max(topks)  # Return 5 closest points
         )
+        pdb.set_trace()
         for topk in topks:
             if topk not in gt_counts:
                 gt_counts[topk] = 0
