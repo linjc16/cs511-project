@@ -13,8 +13,9 @@ from sentence_transformers import SentenceTransformer
 from load_data import load_csv
 import numpy as np
 
-encoder = SentenceTransformer("all-MiniLM-L6-v2")
-qdrant = QdrantClient(":memory:")
+
+encoder = SentenceTransformer("microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext")
+qdrant = QdrantClient(path="data/ms2/db")
 
 def create_collection():
     qdrant.recreate_collection(
@@ -26,15 +27,16 @@ def create_collection():
     )
 
 def encode(row):
-    fields_to_concat = [row['Public Title'], row['Scientific Title'], row['Brief Summary']]
+    # fields_to_concat = [row['Public Title'], row['Scientific Title'], row['Brief Summary']]
+    fields_to_concat = [row['title'], row['abstract']]
     # Filter out None values
     valid_fields = [field for field in fields_to_concat if field is not None]
     # Concatenate the remaining fields with a space
     concat_str = ' '.join(valid_fields)
     return encoder.encode(concat_str).tolist()
 
-def upload_records():
-    df = load_csv('ctgov_split/ctgov_0.csv')
+def upload_records(filepath):
+    df = load_csv(filepath)
     # # Replace np.nan, np.inf, and -np.inf with None (or any other value you see fit)
     # df.replace([np.inf, -np.inf], np.nan, inplace=True)  # First, replace inf and -inf with np.nan
     # df.fillna(value=None, inplace=True)  # Then, replace np.nan with None
@@ -51,13 +53,16 @@ def upload_records():
 
 
 if __name__=='__main__':
+    filepath = 'data/ms2/pm_test.csv'
     create_collection()
-    upload_records()
-
+    upload_records(filepath)
+    
+    # query = "What is the impact of methylphenidate on academic productivity and accuracy in children with ADHD? Are there any mediating or moderating effects of symptom improvements, demographic factors, design variables, or disorder-related variables? What are the findings of previous reviews on stimulant-related academic improvements? Are there any recent studies that suggest outcome-domain-specific medication effects? How do these effects compare in terms of productivity and accuracy for math, reading, and spelling? What is the magnitude of academic improvements compared to symptom improvements? Are there any qualitative changes observed in math?"
+    query = 'methylphenidate'
     hits = qdrant.search(
         collection_name="clinical_trials",
-        query_vector=encoder.encode("blood test").tolist(),
-        limit=3,
+        query_vector=encoder.encode(query).tolist(),
+        limit=30,
     )
     for hit in hits:
         print(hit.payload, "score:", hit.score)

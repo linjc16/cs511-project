@@ -6,5 +6,9 @@ ctgov_split/
 .DS_Store
 
 openai_api_azure.key
+openai_api.key
+
 data/ms2/raw/train.json
 data/ms2/output_test.csv
+data/ms2/pm_train.csv
+data/ms2/db

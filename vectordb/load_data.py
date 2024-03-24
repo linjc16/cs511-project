@@ -1,7 +1,7 @@
 import pandas as pd
 
 def load_csv(file_path):
-    df = pd.read_csv(file_path, nrows=50)
+    df = pd.read_csv(file_path)
     df = df.astype(str)
     df = df.where(pd.notnull(df), None)
     df = df.map(lambda x: None if pd.isna(x) else x)

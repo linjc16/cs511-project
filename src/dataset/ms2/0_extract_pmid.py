@@ -1,10 +1,15 @@
 import json
 import pandas as pd
+import argparse
 from tqdm import tqdm
 
 
 if __name__ == '__main__':
-    with open('data/ms2/raw/test.json') as f:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--split', type=str, default='test')
+    args = parser.parse_args()
+
+    with open(f'data/ms2/raw/{args.split}.json') as f:
         data = json.load(f)
 
     paper_set = set()
@@ -19,4 +24,4 @@ if __name__ == '__main__':
         
     df = pd.DataFrame(list(paper_set), columns=['pmid', 'title', 'abstract'])
 
-    df.to_csv('data/ms2/pm_test.csv', index=False)
+    df.to_csv(f'data/ms2/pm_{args.split}.csv', index=False)
