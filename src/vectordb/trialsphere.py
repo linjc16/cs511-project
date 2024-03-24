@@ -7,6 +7,7 @@ import json
 from tqdm import tqdm
 from qdrant_client.models import Filter, FieldCondition
 from collections import defaultdict
+import glob
 
 import os
 import sys
@@ -77,24 +78,7 @@ def upload_records(filepath):
         ],
     )
 
-def decompe_query(query):
-    instruction_prompt = (
-        'Decompose the complex query into several parts which will be used for database search, '
-        'so that these parts can fully represent the query. '
-        'Also, the generated parts do not need to be exactly the same as the original query. '
-        'Instead, you can either rephrase the query or extract the most important information. '
-        'You should decompose the query in both sentence and keyword level.'
-        '\n\n'
-        'Query: {query}'
-        '\n\n'
-        'Now, please decompose the query into several parts and the output should follow the json format as'
-        ': sentences: [part1, part2, ...], keywords: [keyword1, keyword2, ...]'
-    )
 
-    deco_parts = gpt_chat_35(instruction_prompt, {'query': query})
-    # keywords = keywords.split(', ')
-
-    return deco_parts
 
 def get_pmid_score_dict(hits, topk):
     pmid_score_dict = defaultdict(float)
@@ -153,6 +137,16 @@ if __name__=='__main__':
     
     gt_counts = defaultdict(int)
     pred_count = defaultdict(int)
+
+    # load the decomposed queries
+    decomposed_queries = {}
+    filepaths = glob.glob('data/ms2/results/raw/gen_parts/decomposed_query_*.json')
+    for filepath in filepaths:
+        with open(filepath, 'r') as f:
+            decomposed_queries.update(json.load(f))
+    
+
+
     for key, value in tqdm(test_data.items()):
         query = value['query']
         ground_truth = value['pmid']
@@ -168,28 +162,18 @@ if __name__=='__main__':
             limit=max(topks),
         )
 
-        # decompose the query into several keywords
-        STOP_SIGNAL = False
-        while not STOP_SIGNAL:
-            try:
-                deco_parts = decompe_query(query)
-                deco_parts = json.loads(deco_parts)
-                sentences_parts = deco_parts['sentences']
-                keywords_parts = deco_parts['keywords']
-                STOP_SIGNAL = True
-            except Exception as e:
-                continue
         
+        sentences_parts = decomposed_queries[key]['sentences_parts']
 
         hits_vecs_sent = []
         for part_query in sentences_parts:
             hits_vec = search_by_parts(part_query, topks)
             hits_vecs_sent.extend(hits_vec)
         
-        hits_vecs_word = []
-        for part_query in keywords_parts:
-            hits_vec = search_by_parts(part_query, topks)
-            hits_vecs_word.extend(hits_vec)
+        # hits_vecs_word = []
+        # for part_query in keywords_parts:
+        #     hits_vec = search_by_parts(part_query, topks)
+        #     hits_vecs_word.extend(hits_vec)
         
         
 
@@ -197,13 +181,14 @@ if __name__=='__main__':
             scores_dict_merge = {}
             scores_main = get_pmid_score_dict(hits_main, topk)
             scores_sent = get_pmid_score_dict(hits_vecs_sent, topk)
-            scores_word = get_pmid_score_dict(hits_vecs_word, topk)
+            # scores_word = get_pmid_score_dict(hits_vecs_word, topk)
+            scores_word = defaultdict(float)
 
             scores_dict_merge = {
                 'key': key,
                 'scores_main': scores_main,
                 'scores_sent': scores_sent,
-                'scores_word': scores_word
+                # 'scores_word': scores_word
             }
 
             # save the dict row by row
@@ -214,12 +199,13 @@ if __name__=='__main__':
             scores_merge = defaultdict(float)
             # the scores_merge should have keys from all the scores
             for pmid in set(scores_main.keys()).union(set(scores_sent.keys())).union(set(scores_word.keys())):
-                scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] + \
-                    1.0 / len(hits_vecs_word) * scores_word[pmid]
+                # scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] + \
+                #     1.0 / len(hits_vecs_word) * scores_word[pmid]
+                scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] 
             
             # sort the scores_merge, from high to low
             scores_merge = dict(sorted(scores_merge.items(), key=lambda x: x[1], reverse=True))
-            
+
             output = list(scores_merge.keys())[:topk]
             # calculate the recall
             recall = len(set(ground_truth).intersection(set(output)))
