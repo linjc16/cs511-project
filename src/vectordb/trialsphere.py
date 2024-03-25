@@ -125,7 +125,10 @@ def search_by_parts(part_query, topks):
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--filepath', type=str, default='data/ms2/pm_test.csv')
+    # parser.add_argument('--load_scores', action='store_true')
     args = parser.parse_args()
+    args.load_scores = False
+    
     filepath = args.filepath
     # create_collection()
     # upload_records(filepath)
@@ -144,64 +147,101 @@ if __name__=='__main__':
     for filepath in filepaths:
         with open(filepath, 'r') as f:
             decomposed_queries.update(json.load(f))
-    
+
+    # pdb.set_trace()
+    if args.load_scores:
+        scores_dict_merge_all = {}
+
+        for topk in topks:
+            # read the file
+            with open(f'data/ms2/results/scores_dict_merge_{topk}.json', 'r') as f:
+                scores_ind_dict = {}
+                for line in f:
+                    scores_dict_merge = json.loads(line)
+                    key = scores_dict_merge['key']
+                    scores_main = scores_dict_merge['scores_main']
+                    scores_sent = scores_dict_merge['scores_sent']
+                    scores_word = scores_dict_merge['scores_word']
+
+                    if key not in scores_ind_dict:
+                        scores_ind_dict[key] = {
+                            'scores_main': scores_main,
+                            'scores_sent': scores_sent,
+                            'scores_word': scores_word
+                        }
+                
+                scores_dict_merge_all[topk] = scores_ind_dict
 
 
     for key, value in tqdm(test_data.items()):
         query = value['query']
         ground_truth = value['pmid']
         
-        query_vector = openai_client.embeddings.create(
-                input=[query],
-                model=embedding_model
-            ).data[0].embedding
+        if not args.load_scores:
+            query_vector = openai_client.embeddings.create(
+                    input=[query],
+                    model=embedding_model
+                ).data[0].embedding
 
-        hits_main = qdrant.search(
-            collection_name="clinical_trials_openai",
-            query_vector=query_vector,
-            limit=max(topks),
-        )
+            hits_main = qdrant.search(
+                collection_name="clinical_trials_openai",
+                query_vector=query_vector,
+                limit=max(topks),
+            )
 
-        
-        sentences_parts = decomposed_queries[key]['sentences_parts']
 
-        hits_vecs_sent = []
-        for part_query in sentences_parts:
-            hits_vec = search_by_parts(part_query, topks)
-            hits_vecs_sent.extend(hits_vec)
-        
-        # hits_vecs_word = []
-        # for part_query in keywords_parts:
-        #     hits_vec = search_by_parts(part_query, topks)
-        #     hits_vecs_word.extend(hits_vec)
-        
-        
+            sentences_parts = decomposed_queries[key]['sentences_parts']
+            keywords_parts = decomposed_queries[key]['keywords_parts']
 
+            hits_vecs_sent = []
+            for part_query in sentences_parts:
+                hits_vec = search_by_parts(part_query, topks)
+                hits_vecs_sent.extend(hits_vec)
+        
+            hits_vecs_word = []
+            for part_query in keywords_parts:
+                hits_vec = search_by_parts(part_query, topks)
+                hits_vecs_word.extend(hits_vec)
+        
+        
         for topk in topks:
-            scores_dict_merge = {}
-            scores_main = get_pmid_score_dict(hits_main, topk)
-            scores_sent = get_pmid_score_dict(hits_vecs_sent, topk)
-            # scores_word = get_pmid_score_dict(hits_vecs_word, topk)
-            scores_word = defaultdict(float)
+            # if scores_dict_merge_all empyt[topk]
+            if not args.load_scores:
+                scores_dict_merge = {}
+                scores_main = get_pmid_score_dict(hits_main, topk)
+                scores_sent = get_pmid_score_dict(hits_vecs_sent, topk)
+                # scores_word = get_pmid_score_dict(hits_vecs_word, topk)
+                scores_word = defaultdict(float)
 
-            scores_dict_merge = {
-                'key': key,
-                'scores_main': scores_main,
-                'scores_sent': scores_sent,
-                # 'scores_word': scores_word
-            }
+                scores_dict_merge = {
+                    'key': key,
+                    'scores_main': scores_main,
+                    'scores_sent': scores_sent,
+                    'scores_word': scores_word
+                }
 
-            # save the dict row by row
-            with open(f'data/ms2/results/scores_dict_merge_{topk}.json', 'a') as f:
-                f.write(json.dumps(scores_dict_merge) + '\n')
+                # save the dict row by row
+                with open(f'data/ms2/results/scores_dict_merge_{topk}.json', 'a') as f:
+                    f.write(json.dumps(scores_dict_merge) + '\n')
 
+            else:
+                scores_dict_merge = scores_dict_merge_all[topk][key]
+                scores_main = defaultdict(float)
+                scores_main.update(scores_dict_merge['scores_main'])
+                scores_sent = defaultdict(float)
+                scores_sent.update(scores_dict_merge['scores_sent'])
+                scores_word = scores_dict_merge['scores_word']
+                scores_word = defaultdict(float)
+            
             # merge the scores by 1 * main + 0.2 * sent + 0.2 * word
             scores_merge = defaultdict(float)
+            
             # the scores_merge should have keys from all the scores
-            for pmid in set(scores_main.keys()).union(set(scores_sent.keys())).union(set(scores_word.keys())):
+            for pmid in set(scores_sent.keys()).union(set(scores_word.keys())).union(set(scores_main.keys())):
                 # scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] + \
                 #     1.0 / len(hits_vecs_word) * scores_word[pmid]
-                scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] 
+                # scores_merge[pmid] = 1.0 / len(hits_vecs_sent) * scores_sent[pmid] 
+                scores_merge[pmid] = scores_main[pmid] + 0.95 * scores_sent[pmid]
             
             # sort the scores_merge, from high to low
             scores_merge = dict(sorted(scores_merge.items(), key=lambda x: x[1], reverse=True))
