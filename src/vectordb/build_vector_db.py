@@ -26,6 +26,21 @@ def create_collection():
         ),
     )
 
+def create_multivector_collection():
+    qdrant.recreate_collection(
+        collection_name='clinical_trials_mv',
+        vectors_config={
+            "title": models.VectorParams(
+                size=encoder.get_sentence_embedding_dimension(),  # Vector size is defined by used model
+                distance=models.Distance.COSINE,
+            ),
+            "abstract": models.VectorParams(
+                size=encoder.get_sentence_embedding_dimension(),  # Vector size is defined by used model
+                distance=models.Distance.COSINE,
+            ),
+        }
+    )
+
 def encode(row):
     # fields_to_concat = [row['Public Title'], row['Scientific Title'], row['Brief Summary']]
     fields_to_concat = [row['title'], row['abstract']]
@@ -51,19 +66,61 @@ def upload_records(filepath):
         ],
     )
 
+def encode_multivector(row):
+    title, abstract = row['title'], row['abstract']
+    encoded_title = encoder.encode(title).tolist()
+    encoded_abstract = encoder.encode(abstract).tolist()
+    return {"title": encoded_title, "abstract": encoded_abstract}
+
+
+def upload_multivector_records(filepath):
+    df = load_csv(filepath)
+    qdrant.upsert(
+        collection_name="clinical_trials_mv",
+        points=[
+            models.PointStruct(
+                id=idx,
+                vector=encode_multivector(row),
+                payload=row.to_dict()
+            )
+            for idx, row in df.iterrows()
+        ]
+    )
+
 
 if __name__=='__main__':
     filepath = 'data/ms2/pm_test.csv'
-    create_collection()
-    upload_records(filepath)
+    # concat mode
+    # create_collection()
+    # upload_records(filepath)
     
-    # query = "What is the impact of methylphenidate on academic productivity and accuracy in children with ADHD? Are there any mediating or moderating effects of symptom improvements, demographic factors, design variables, or disorder-related variables? What are the findings of previous reviews on stimulant-related academic improvements? Are there any recent studies that suggest outcome-domain-specific medication effects? How do these effects compare in terms of productivity and accuracy for math, reading, and spelling? What is the magnitude of academic improvements compared to symptom improvements? Are there any qualitative changes observed in math?"
-    query = 'methylphenidate'
+    # # query = "What is the impact of methylphenidate on academic productivity and accuracy in children with ADHD? Are there any mediating or moderating effects of symptom improvements, demographic factors, design variables, or disorder-related variables? What are the findings of previous reviews on stimulant-related academic improvements? Are there any recent studies that suggest outcome-domain-specific medication effects? How do these effects compare in terms of productivity and accuracy for math, reading, and spelling? What is the magnitude of academic improvements compared to symptom improvements? Are there any qualitative changes observed in math?"
+    # query = 'methylphenidate'
+    # hits = qdrant.search(
+    #     collection_name="clinical_trials",
+    #     query_vector=encoder.encode(query).tolist(),
+    #     limit=30,
+    # )
+    # for hit in hits:
+    #     print(hit.payload, "score:", hit.score)
+
+    # multi vector mode
+    create_multivector_collection()
+    upload_multivector_records(filepath)
+
+    query = 'Give me the records about methylphenidate lab'
     hits = qdrant.search(
-        collection_name="clinical_trials",
-        query_vector=encoder.encode(query).tolist(),
-        limit=30,
+        collection_name="clinical_trials_mv",
+        query_vector=models.NamedVector(
+            name="abstract",
+            vector=encoder.encode(query).tolist(),
+        ),
+        limit=10,
+        with_vectors=False,
+        with_payload=True,
     )
+
     for hit in hits:
         print(hit.payload, "score:", hit.score)
+
 

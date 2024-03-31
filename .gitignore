@@ -2,6 +2,7 @@
 ctgov_split/
 
 *.db
+**/*.csv
 
 .DS_Store
 
