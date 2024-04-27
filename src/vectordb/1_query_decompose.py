@@ -24,7 +24,7 @@ openai_client = openai.Client(
     api_key=api_key
 )
 
-def decompe_query(query):
+def decomp_query_text(query):
     instruction_prompt = (
         'Decompose the complex query into several parts which will be used for database search, '
         'so that these parts can fully represent the query. '
@@ -39,10 +39,43 @@ def decompe_query(query):
     )
 
     deco_parts = gpt_chat_35(instruction_prompt, {'query': query})
-    # keywords = keywords.split(', ')
 
     return deco_parts
 
+
+def decomp_query_trea_dise(query):
+    instruction_prompt = (
+        'Given the query, extract the essential information related to diseases and treatments at both the keyword and sentence levels.'
+        '\n\n'
+        'Query: {query}'
+        '\n\n'
+        'Now, please decompose the query into several parts and the output should follow the json format as: '
+        '```'
+        'diseases: sentences: [part1, part2, ...], keywords: [keyword1, keyword2, ...]\n'
+        'treatments: sentences: [part1, part2, ...], keywords: [keyword1, keyword2, ...]'
+        '```'
+    )
+
+    deco_parts = gpt_chat_35(instruction_prompt, {'query': query})
+
+    return deco_parts
+
+def decomp_query_number(query):
+
+    instruction_prompt = (
+        'Given the query, extract the essential information related to numbers at the sentence level.'
+        '\n\n'
+        'Query: {query}'
+        '\n\n'
+        'Now, please decompose the query into several parts and the output should follow the json format as: '
+        '```'
+        'sentences: [part1, part2, ...]'
+        '```'
+    )
+
+    deco_parts = gpt_chat_35(instruction_prompt, {'query': query})
+
+    return deco_parts
 
 def worker(args):
     process_id, test_data = args
@@ -56,7 +89,12 @@ def worker(args):
         STOP_SIGNAL = False
         while not STOP_SIGNAL:
             try:
-                deco_parts = decompe_query(query)
+                if args.mode == 'text':
+                    deco_parts = decomp_query_text(query)
+                elif args.mode == 'trea_dise':
+                    deco_parts = decomp_query_trea_dise(query)
+                elif args.mode == 'number':
+                    deco_parts = decomp_query_number(query)
                 deco_parts = json.loads(deco_parts)
                 sentences_parts = deco_parts['sentences']
                 keywords_parts = deco_parts['keywords']
@@ -70,17 +108,18 @@ def worker(args):
         }
 
         if i % 100 == 0:
-            with open(f'data/ms2/results/raw/gen_parts/decomposed_query_{process_id}.json', 'w') as f:
+            with open(f'data/ms2/results/raw/gen_parts/decomposed_query_{process_id}_{args.mode}.json', 'w') as f:
                 json.dump(output_dict, f, indent=4)
         
         i += 1
     
-    with open(f'data/ms2/results/raw/gen_parts/decomposed_query_{process_id}.json', 'w') as f:
+    with open(f'data/ms2/results/raw/gen_parts/decomposed_query_{process_id}_{args.mode}.json', 'w') as f:
         json.dump(output_dict, f, indent=4)
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--filepath', type=str, default='data/ms2/pm_test.csv')
+    parser.add_argument('--mode', type=str, default='text')
     args = parser.parse_args()
     filepath = args.filepath
     # create_collection()

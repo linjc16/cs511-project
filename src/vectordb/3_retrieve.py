@@ -169,7 +169,7 @@ if __name__=='__main__':
             
             scores_dict_merge_all[topk] = scores_ind_dict
 
-
+    
     for key, value in tqdm(test_data.items()):
         query = value['query']
         ground_truth = value['pmid']
