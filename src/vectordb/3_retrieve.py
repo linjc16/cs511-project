@@ -103,7 +103,7 @@ def search_by_parts(part_query, topks):
         query_vector=query_vector,
         limit=max(topks)  # Return 5 closest points
     )
-
+    
     # # then search for keywords
     # hits = qdrant.search(
     #     collection_name="clinical_trials_openai",

@@ -77,8 +77,8 @@ def decomp_query_number(query):
 
     return deco_parts
 
-def worker(args):
-    process_id, test_data = args
+def worker(input):
+    process_id, test_data = input
 
     output_dict = {}
     i = 0
@@ -91,29 +91,39 @@ def worker(args):
             try:
                 if args.mode == 'text':
                     deco_parts = decomp_query_text(query)
+                    deco_parts = json.loads(deco_parts)
+                    sentences_parts = deco_parts['sentences']
+                    keywords_parts = deco_parts['keywords']
+                    STOP_SIGNAL = True
+                    output_dict[key] = {
+                        'sentences_parts': sentences_parts,
+                        'keywords_parts': keywords_parts
+                    }
                 elif args.mode == 'trea_dise':
                     deco_parts = decomp_query_trea_dise(query)
+                    deco_parts = json.loads(deco_parts)
+                    output_dict[key] = deco_parts
+                    STOP_SIGNAL = True
                 elif args.mode == 'number':
                     deco_parts = decomp_query_number(query)
-                deco_parts = json.loads(deco_parts)
-                sentences_parts = deco_parts['sentences']
-                keywords_parts = deco_parts['keywords']
-                STOP_SIGNAL = True
+                    deco_parts = json.loads(deco_parts)
+                    output_dict[key] = deco_parts
+                else:
+                    raise ValueError('Invalid mode')
+
+                
             except Exception as e:
                 continue
         
-        output_dict[key] = {
-            'sentences_parts': sentences_parts,
-            'keywords_parts': keywords_parts
-        }
+        
 
         if i % 100 == 0:
-            with open(f'data/ms2/results/raw/gen_parts/decomposed_query_{process_id}_{args.mode}.json', 'w') as f:
+            with open(f'data/ms2/results/raw/gen_parts/{args.mode}/decomposed_query_{process_id}.json', 'w') as f:
                 json.dump(output_dict, f, indent=4)
         
         i += 1
     
-    with open(f'data/ms2/results/raw/gen_parts/decomposed_query_{process_id}_{args.mode}.json', 'w') as f:
+    with open(f'data/ms2/results/raw/gen_parts/{args.mode}/decomposed_query_{process_id}.json', 'w') as f:
         json.dump(output_dict, f, indent=4)
 
 if __name__=='__main__':
@@ -124,6 +134,8 @@ if __name__=='__main__':
     filepath = args.filepath
     # create_collection()
     # upload_records(filepath)
+    save_dir = f'data/ms2/results/raw/gen_parts/{args.mode}/'
+    os.makedirs(save_dir, exist_ok=True)
     
     with open('data/ms2/re_test.json', 'r') as f:
         test_data = json.load(f)
@@ -145,5 +157,5 @@ if __name__=='__main__':
     
     pool = multiprocessing.Pool(num_processes)
     
-    pool.map(worker, test_data_parts)
-    # worker(test_data_parts[0])
+    # pool.map(worker, test_data_parts)
+    worker(test_data_parts[0])
