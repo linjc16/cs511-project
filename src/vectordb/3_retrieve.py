@@ -79,49 +79,6 @@ def upload_records(filepath):
     )
 
 
-
-def get_pmid_score_dict(hits, topk):
-    pmid_score_dict = defaultdict(float)
-    hits_subset = hits[:topk]
-    for hit in hits_subset:
-        pmid = hit.payload['pmid']
-        score = hit.score
-        pmid_score_dict[pmid] += score
-
-    return pmid_score_dict
-
-
-def search_by_parts(part_query, topks):
-    query_vector = openai_client.embeddings.create(
-            input=[part_query],
-            model=embedding_model
-        ).data[0].embedding
-    
-    # first search by the vector
-    hits_vec = qdrant.search(
-        collection_name="clinical_trials_openai",
-        query_vector=query_vector,
-        limit=max(topks)  # Return 5 closest points
-    )
-    
-    # # then search for keywords
-    # hits = qdrant.search(
-    #     collection_name="clinical_trials_openai",
-    #     query_vector=query_vector,
-    #     query_filter=Filter(
-    #         must=[  # These conditions are required for search results
-    #             FieldCondition(
-    #                 key='title',  # Condition based on values of `rand_number` field.
-    #                 match=models.MatchText(text="necrotizing enterocolitis"),
-    #             )
-    #         ]
-    #     ),
-    #     limit=max(topks)  # Return 5 closest points
-    # )
-
-    return hits_vec
-
-
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--filepath', type=str, default='data/ms2/pm_test.csv')
@@ -134,18 +91,12 @@ if __name__=='__main__':
     with open('data/ms2/re_test.json', 'r') as f:
         test_data = json.load(f)
     
-    topks = [20, 50, 100]
+    # topks = [20, 50, 100]
+    topks = [100]
     
     gt_counts = defaultdict(int)
     pred_count = defaultdict(int)
 
-    # load the decomposed queries
-    decomposed_queries = {}
-    filepaths = glob.glob('data/ms2/results/raw/gen_parts/decomposed_query_*.json')
-    for filepath in filepaths:
-        with open(filepath, 'r') as f:
-            decomposed_queries.update(json.load(f))
-    
 
     scores_dict_merge_all = {}
 
@@ -156,15 +107,33 @@ if __name__=='__main__':
             for line in f:
                 scores_dict_merge = json.loads(line)
                 key = scores_dict_merge['key']
-                scores_main = scores_dict_merge['scores_main']
-                scores_sent = scores_dict_merge['scores_sent']
-                scores_word = scores_dict_merge['scores_word']
+                scores_main = scores_dict_merge['text']['scores_main']
+                scores_sent_text = scores_dict_merge['text']['scores_sent']
+                scores_word_text = scores_dict_merge['text']['scores_word']
+                scores_sent_disease = scores_dict_merge['diseases']['scores_sent']
+                scores_word_disease = scores_dict_merge['diseases']['scores_word']
+                scores_sent_number = scores_dict_merge['number']['scores_sent']
+                scores_sent_treatment = scores_dict_merge['treatments']['scores_sent']
+                scores_word_treatment = scores_dict_merge['treatments']['scores_word']
 
                 if key not in scores_ind_dict:
                     scores_ind_dict[key] = {
-                        'scores_main': scores_main,
-                        'scores_sent': scores_sent,
-                        'scores_word': scores_word
+                        'text': {
+                            'scores_main': scores_main,
+                            'scores_sent': scores_sent_text,
+                            'scores_word': scores_word_text
+                        },
+                        'diseases': {
+                            'scores_sent': scores_sent_disease,
+                            'scores_word': scores_word_disease
+                        },
+                        'number': {
+                            'scores_sent': scores_sent_number
+                        },
+                        'treatments': {
+                            'scores_sent': scores_sent_treatment,
+                            'scores_word': scores_word_treatment
+                        }
                     }
             
             scores_dict_merge_all[topk] = scores_ind_dict
@@ -175,21 +144,45 @@ if __name__=='__main__':
         ground_truth = value['pmid']
         
         for topk in topks:
+            if key not in scores_dict_merge_all[topk]:
+                continue
             scores_dict_merge = scores_dict_merge_all[topk][key]
+
             scores_main = defaultdict(float)
-            scores_main.update(scores_dict_merge['scores_main'])
-            scores_sent = defaultdict(float)
-            scores_sent.update(scores_dict_merge['scores_sent'])
-            scores_word = defaultdict(float)
-            scores_word.update(scores_dict_merge['scores_word'])
+            scores_main.update(scores_dict_merge['text']['scores_main'])
+            scores_sent_text = defaultdict(float)
+            scores_sent_text.update(scores_dict_merge['text']['scores_sent'])
+            scores_word_text = defaultdict(float)
+            scores_word_text.update(scores_dict_merge['text']['scores_word'])
+
+            scores_sent_disease = defaultdict(float)
+            scores_sent_disease.update(scores_dict_merge['diseases']['scores_sent'])
+            scores_word_disease = defaultdict(float)
+            scores_word_disease.update(scores_dict_merge['diseases']['scores_word'])
+
+            scores_sent_number = defaultdict(float)
+            scores_sent_number.update(scores_dict_merge['number']['scores_sent'])
+
+            scores_sent_treatment = defaultdict(float)
+            scores_sent_treatment.update(scores_dict_merge['treatments']['scores_sent'])
+            scores_word_treatment = defaultdict(float)
+            scores_word_treatment.update(scores_dict_merge['treatments']['scores_word'])
             
             # merge the scores by 1 * main + 0.2 * sent + 0.2 * word
             scores_merge = defaultdict(float)
+
+            union_set = set(scores_main.keys()).union(set(scores_sent_text.keys())).union(set(scores_word_text.keys())) \
+                .union(set(scores_sent_disease.keys())).union(set(scores_word_disease.keys())) \
+                .union(set(scores_sent_number.keys())).union(set(scores_sent_treatment.keys())).union(set(scores_word_treatment.keys()))
             
-            # the scores_merge should have keys from all the scores
-            for pmid in set(scores_sent.keys()).union(set(scores_word.keys())).union(set(scores_main.keys())):
-                scores_merge[pmid] = scores_main[pmid] #+ 0.96 * scores_sent[pmid] + 0.001 * scores_word[pmid]
             
+            for pmid in union_set:
+                scores_merge[pmid] = scores_main[pmid] + 0.2 * (
+                    scores_sent_text[pmid] + scores_word_text[pmid] + scores_sent_disease[pmid] + 
+                    scores_word_disease[pmid] + scores_sent_number[pmid] + scores_sent_treatment[pmid] + 
+                    scores_word_treatment[pmid]
+                )
+
             # sort the scores_merge, from high to low
             scores_merge = dict(sorted(scores_merge.items(), key=lambda x: x[1], reverse=True))
 

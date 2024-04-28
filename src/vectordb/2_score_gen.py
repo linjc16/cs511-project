@@ -62,7 +62,7 @@ def upload_records(filepath):
     # # Replace np.nan, np.inf, and -np.inf with None (or any other value you see fit)
     # df.replace([np.inf, -np.inf], np.nan, inplace=True)  # First, replace inf and -inf with np.nan
     # df.fillna(value=None, inplace=True)  # Then, replace np.nan with None
-
+    
     embeddings = encode(df)
     
     row_dict_list = []
@@ -127,83 +127,72 @@ def gen_scores(args):
     process_id, test_data = args
     for key, value in tqdm(test_data.items()):
         query = value['query']
-        ground_truth = value['pmid']
 
-        # query_vector = openai_client.embeddings.create(
-        #         input=[query],
-        #         model=embedding_model
-        #     ).data[0].embedding
+        query_vector = openai_client.embeddings.create(
+                input=[query],
+                model=embedding_model
+            ).data[0].embedding
 
-        # hits_main = qdrant.search(
-        #     collection_name="clinical_trials_openai",
-        #     query_vector=query_vector,
-        #     limit=max(topks),
-        # )
+        hits_main = qdrant.search(
+            collection_name="clinical_trials_openai",
+            query_vector=query_vector,
+            limit=max(topks),
+        )
+        
+        scores_dict_merge_modals = {}
+        scores_dict_merge_modals['key'] = key
+        
+        for modal in ['text', 'diseases', 'treatments', 'number']:
 
-        # sentences_parts = decomposed_queries[key]['sentences_parts']
-        keywords_parts = decomposed_queries[key]['keywords_parts']
+            sentences_parts = decomposed_queries[key][modal]['sentences']
+            if modal == 'number':
+                keywords_parts = []
+            else:
+                keywords_parts = decomposed_queries[key][modal]['keywords']
         # merge [[], [], []] -> []
-
-
-        # hits_vecs_sent = []
-        # for part_query in sentences_parts:
-        #     hits_vec = search_by_parts(part_query, topks)
-        #     hits_vecs_sent.extend(hits_vec)
         
-        try:
-            hits_vecs_word = []
-            for part_query in keywords_parts:
+
+            hits_vecs_sent = []
+            for part_query in sentences_parts:
                 hits_vec = search_by_parts(part_query, topks)
-                hits_vecs_word.extend(hits_vec)
-        except:
-            if isinstance(keywords_parts[0], list):
-                keywords_parts = [item for sublist in keywords_parts for item in sublist]
-            hits_vecs_word = []
-            for part_query in keywords_parts:
-                # pdb.set_trace()
-                hits_vec = search_by_parts(part_query, topks)
-                hits_vecs_word.extend(hits_vec)
+                hits_vecs_sent.extend(hits_vec)
+            
+            try:
+                hits_vecs_word = []
+                for part_query in keywords_parts:
+                    hits_vec = search_by_parts(part_query, topks)
+                    hits_vecs_word.extend(hits_vec)
+            except:
+                if isinstance(keywords_parts[0], list):
+                    keywords_parts = [item for sublist in keywords_parts for item in sublist]
+                hits_vecs_word = []
+                for part_query in keywords_parts:
+                    # pdb.set_trace()
+                    hits_vec = search_by_parts(part_query, topks)
+                    hits_vecs_word.extend(hits_vec)
+            
+            for topk in topks:
+                scores_dict_merge = {}
+                scores_main = get_pmid_score_dict(hits_main, topk)
+                scores_sent = get_pmid_score_dict(hits_vecs_sent, topk)
+                scores_word = get_pmid_score_dict(hits_vecs_word, topk)
+                
+                scores_dict_merge = {
+                    'scores_main': scores_main,
+                    'scores_sent': scores_sent,
+                    'scores_word': scores_word
+                }
+
+                scores_dict_merge_modals[modal] = scores_dict_merge
+
         
-        for topk in topks:
-            scores_dict_merge = {}
-            # scores_main = get_pmid_score_dict(hits_main, topk)
-            # scores_sent = get_pmid_score_dict(hits_vecs_sent, topk)
-            scores_word = get_pmid_score_dict(hits_vecs_word, topk)
-
-            scores_dict_merge = {
-                'key': key,
-                # 'scores_main': scores_main,
-                # 'scores_sent': scores_sent,
-                'scores_word': scores_word
-            }
-
-            # save the dict row by row
-            with open(f'data/ms2/results/raw/word_scores/{topk}/scores_dict_merge_{topk}_{process_id}.json', 'a') as f:
-                f.write(json.dumps(scores_dict_merge) + '\n')
+        
+        # save the dict row by row
+        with open(f'data/ms2/results/raw/word_scores/{topk}/scores_dict_merge_{topk}_{process_id}.json', 'a') as f:
+            f.write(json.dumps(scores_dict_merge_modals) + '\n')
 
 
             
-            # merge the scores by 1 * main + 0.2 * sent + 0.2 * word
-            # scores_merge = defaultdict(float)
-            
-            # # the scores_merge should have keys from all the scores
-            # for pmid in set(scores_sent.keys()).union(set(scores_word.keys())).union(set(scores_main.keys())):
-            #     # scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] + \
-            #     #     1.0 / len(hits_vecs_word) * scores_word[pmid]
-            #     # scores_merge[pmid] = 1.0 / len(hits_vecs_sent) * scores_sent[pmid] 
-            #     scores_merge[pmid] = scores_main[pmid] + 0.95 * scores_sent[pmid]
-            
-            # # sort the scores_merge, from high to low
-            # scores_merge = dict(sorted(scores_merge.items(), key=lambda x: x[1], reverse=True))
-
-            # output = list(scores_merge.keys())[:topk]
-            # # calculate the recall
-            # recall = len(set(ground_truth).intersection(set(output)))
-            # gt_counts[topk] += min(len(ground_truth), topk)
-            # pred_count[topk] += recall
-
-    # for topk in topks:
-    #     print(f"Top-{topk}: {pred_count[topk]/gt_counts[topk]}")
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -222,13 +211,37 @@ if __name__=='__main__':
     gt_counts = defaultdict(int)
     pred_count = defaultdict(int)
 
-    # load the decomposed queries
+    # load the decomposed queries from mode 'text', 'trea_dise', 'number'
     decomposed_queries = {}
-    filepaths = glob.glob('data/ms2/results/raw/gen_parts/decomposed_query_*.json')
+    # first load trea_dise
+    filepaths = glob.glob('data/ms2/results/raw/gen_parts/trea_dise/decomposed_query*.json')
     for filepath in filepaths:
         with open(filepath, 'r') as f:
             decomposed_queries.update(json.load(f))
+    
+    # then load text
+    
+    decomposed_queries_text = {}
+    filepaths = glob.glob('data/ms2/results/raw/gen_parts/text/decomposed_query*.json')
+    for filepath in filepaths:
+        with open(filepath, 'r') as f:
+            decomposed_queries_text.update(json.load(f))
+    # change the key from sentences_parts to sentences, keywords_parts to keywords
+    for key in decomposed_queries_text.keys():
+        decomposed_queries_text[key]['sentences'] = decomposed_queries_text[key].pop('sentences_parts')
+        decomposed_queries_text[key]['keywords'] = decomposed_queries_text[key].pop('keywords_parts')
 
+    # then load number
+    decomposed_queries_number = {}
+    filepaths = glob.glob('data/ms2/results/raw/gen_parts/number/decomposed_query*.json')
+    for filepath in filepaths:
+        with open(filepath, 'r') as f:
+            decomposed_queries_number.update(json.load(f))
+
+    for key in decomposed_queries.keys():
+        decomposed_queries[key]['text'] = decomposed_queries_text[key]
+        decomposed_queries[key]['number'] = decomposed_queries_number[key]
+    
 
     num_processes = 10
 
@@ -243,11 +256,9 @@ if __name__=='__main__':
             test_data_parts.append({k: v for k, v in test_data.items() if i * num_data_per_part <= int(k) < (i + 1) * num_data_per_part})
     
     
-    # missing_part = {'838', '843', '833', '846', '827', '848', '836', '830', '839', '828', '831', '850', '840', '847', '834', '851', '835', '845', '849', '841', '837', '844', '842', '853', '832', '825', '826', '852', '829'}
-    # test_data_parts = {k: v for k, v in test_data.items() if k in missing_part}
-    # gen_scores((6, test_data_parts))
     
     test_data_parts = [(i, test_data_part) for i, test_data_part in enumerate(test_data_parts)]
 
     pool = multiprocessing.Pool(num_processes)
-    pool.map(gen_scores, test_data_parts)
+    # pool.map(gen_scores, test_data_parts)
+    gen_scores(test_data_parts[0])

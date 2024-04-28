@@ -63,11 +63,12 @@ def decomp_query_trea_dise(query):
 def decomp_query_number(query):
 
     instruction_prompt = (
-        'Given the query, extract the essential information related to numbers at the sentence level.'
+        'Given the query, extract the essential information related to exact numbers like at the sentence level. If no exact numbers are present, please return an empty list. For example, if the query is "What is the average age of patients in the study?", the output should be [] since the sentence does not contain any numbers. '
+        'If the query is "The average age of patients in the study is 50 years old.", the output should be ["The average age of patients in the study is 50 years old."].'
         '\n\n'
         'Query: {query}'
         '\n\n'
-        'Now, please decompose the query into several parts and the output should follow the json format as: '
+        'Now, please decompose the query into several parts with numbers and the output should follow the json format as: '
         '```'
         'sentences: [part1, part2, ...]'
         '```'
@@ -108,13 +109,13 @@ def worker(input):
                     deco_parts = decomp_query_number(query)
                     deco_parts = json.loads(deco_parts)
                     output_dict[key] = deco_parts
+                    STOP_SIGNAL = True
                 else:
                     raise ValueError('Invalid mode')
 
-                
+            
             except Exception as e:
                 continue
-        
         
 
         if i % 100 == 0:

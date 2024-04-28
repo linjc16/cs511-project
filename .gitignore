@@ -9,6 +9,8 @@ ctgov_split/
 openai_api_azure.key
 openai_api.key
 
+data
+data_old
 data/ms2/raw/train.json
 data/ms2/output_test.csv
 data/ms2/pm_train.csv
