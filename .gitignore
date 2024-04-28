@@ -17,3 +17,5 @@ data/ms2/pm_train.csv
 data/ms2/db
 data/ms2/results/raw
 temp
+
+clinicals_sql.db-journal

@@ -148,7 +148,7 @@ def search_by_parts_num(part_query_dict, topks):
                 )
             ]
         ),
-        limit=max(topks)  # Return 5 closest points
+        limit=max(topks) 
     )
 
     return hits_vec
