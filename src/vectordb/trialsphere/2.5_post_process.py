@@ -18,7 +18,7 @@ def merge():
             for filepath in filepaths:
                 with open(filepath, 'r') as f1:
                     for line in f1:
-                        data = json.loads(line)
+                        # data = json.loads(line)
                         # each time remove the key from num_str
                         # try:
                         #     num_str.remove(data['key'])

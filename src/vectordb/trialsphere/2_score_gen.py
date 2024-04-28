@@ -1,5 +1,4 @@
 from qdrant_client import models, QdrantClient
-from load_data import load_csv
 import numpy as np
 import argparse
 import openai
@@ -17,6 +16,18 @@ from src.utils.gpt_azure import gpt_chat_35
 
 tqdm.pandas()
 import pdb
+import pandas as pd
+
+def load_csv(file_path):
+    df = pd.read_csv(file_path)
+    df = df.astype(str)
+    df = df.where(pd.notnull(df), None)
+    df = df.map(lambda x: None if pd.isna(x) else x)
+    # pd.set_option('display.max_columns', None)
+    # print(df.head)
+    print("read completed")
+    return df
+
 
 with open('openai_api.key', 'r') as f:
     api_key = f.read().strip()

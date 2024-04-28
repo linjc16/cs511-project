@@ -1,5 +1,4 @@
 from qdrant_client import models, QdrantClient
-from load_data import load_csv
 import numpy as np
 import argparse
 import openai
@@ -8,6 +7,7 @@ from tqdm import tqdm
 from qdrant_client.models import Filter, FieldCondition
 from collections import defaultdict
 import glob
+import pandas as pd
 
 import os
 import sys
@@ -26,6 +26,16 @@ openai_client = openai.Client(
 
 embedding_model = "text-embedding-3-small"
 qdrant = QdrantClient(path="data/ms2/db/openai")
+
+def load_csv(file_path):
+    df = pd.read_csv(file_path)
+    df = df.astype(str)
+    df = df.where(pd.notnull(df), None)
+    df = df.map(lambda x: None if pd.isna(x) else x)
+    # pd.set_option('display.max_columns', None)
+    # print(df.head)
+    print("read completed")
+    return df
 
 def create_collection():
     qdrant.recreate_collection(
@@ -91,8 +101,8 @@ if __name__=='__main__':
     with open('data/ms2/re_test.json', 'r') as f:
         test_data = json.load(f)
     
-    # topks = [20, 50, 100]
-    topks = [100]
+    topks = [20, 50, 100]
+    # topks = [100]
     
     gt_counts = defaultdict(int)
     pred_count = defaultdict(int)

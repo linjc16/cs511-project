@@ -1,5 +1,4 @@
 from qdrant_client import models, QdrantClient
-from load_data import load_csv
 import numpy as np
 import argparse
 import openai
