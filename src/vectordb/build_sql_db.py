@@ -102,7 +102,6 @@ if __name__=='__main__':
         # run a simple test
         res = retrieve_records(cursor, keywords)
         for topk in topks:
-            pdb.set_trace()
             output = [hit[0] for hit in res[:topk]]
             # calculate the recall
             recall = len(set(ground_truth).intersection(set(output)))
