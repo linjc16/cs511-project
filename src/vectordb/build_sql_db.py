@@ -100,7 +100,10 @@ if __name__=='__main__':
         keywords = decomposed_queries_text[key]['keywords_parts']
 
         # run a simple test
-        res = retrieve_records(cursor, keywords)
+        try:
+            res = retrieve_records(cursor, keywords)
+        except:
+            res = []
         for topk in topks:
             output = [hit[0] for hit in res[:topk]]
             # calculate the recall
