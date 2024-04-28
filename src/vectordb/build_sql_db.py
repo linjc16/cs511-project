@@ -98,7 +98,7 @@ if __name__=='__main__':
         ground_truth = value['pmid']
 
         keywords = decomposed_queries_text[key]['keywords_parts']
-
+        
         # run a simple test
         try:
             res = retrieve_records(cursor, keywords)

@@ -1,5 +1,4 @@
 from qdrant_client import models, QdrantClient
-from load_data import load_csv
 import numpy as np
 import argparse
 import openai
@@ -16,6 +15,17 @@ from src.utils.gpt_azure import gpt_chat_35
 
 tqdm.pandas()
 import pdb
+import pandas as pd
+
+def load_csv(file_path):
+    df = pd.read_csv(file_path)
+    df = df.astype(str)
+    df = df.where(pd.notnull(df), None)
+    df = df.map(lambda x: None if pd.isna(x) else x)
+    # pd.set_option('display.max_columns', None)
+    # print(df.head)
+    print("read completed")
+    return df
 
 with open('openai_api.key', 'r') as f:
     api_key = f.read().strip()
@@ -233,15 +243,11 @@ if __name__=='__main__':
                 scores_word = scores_dict_merge['scores_word']
                 scores_word = defaultdict(float)
             
-            # merge the scores by 1 * main + 0.2 * sent + 0.2 * word
             scores_merge = defaultdict(float)
             
             # the scores_merge should have keys from all the scores
-            for pmid in set(scores_sent.keys()).union(set(scores_word.keys())).union(set(scores_main.keys())):
-                # scores_merge[pmid] = scores_main[pmid] + 1.0 / len(hits_vecs_sent) * scores_sent[pmid] + \
-                #     1.0 / len(hits_vecs_word) * scores_word[pmid]
-                # scores_merge[pmid] = 1.0 / len(hits_vecs_sent) * scores_sent[pmid] 
-                scores_merge[pmid] = scores_main[pmid] + 0.95 * scores_sent[pmid]
+            for pmid in scores_main.keys():
+                scores_merge[pmid] = scores_main[pmid]
             
             # sort the scores_merge, from high to low
             scores_merge = dict(sorted(scores_merge.items(), key=lambda x: x[1], reverse=True))
