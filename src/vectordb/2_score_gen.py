@@ -123,6 +123,36 @@ def search_by_parts(part_query, topks):
     return hits_vec
 
 
+def search_by_parts_num(part_query_dict, topks):
+    if 'date' not in part_query_dict:
+        return []
+
+    query_vector = openai_client.embeddings.create(
+            input=[part_query_dict['date']['text']],
+            model=embedding_model
+        ).data[0].embedding
+
+    hits_vec = qdrant.search(
+        collection_name="clinical_trials_openai",
+        query_vector=query_vector,
+        query_filter=Filter(
+            must=[  
+                FieldCondition(
+                    key='date', 
+                    range=models.DatetimeRange(
+                        gt=None,
+                        gte=part_query_dict['date']['gte'],
+                        lt=None,
+                        lte=part_query_dict['date']['lte'],
+                    ),
+                )
+            ]
+        ),
+        limit=max(topks)  # Return 5 closest points
+    )
+
+    return hits_vec
+
 def gen_scores(args):
     process_id, test_data = args
     for key, value in tqdm(test_data.items()):
@@ -154,7 +184,10 @@ def gen_scores(args):
 
             hits_vecs_sent = []
             for part_query in sentences_parts:
-                hits_vec = search_by_parts(part_query, topks)
+                if modal == 'number':
+                    hits_vec = search_by_parts_num(part_query, topks)
+                else:
+                    hits_vec = search_by_parts(part_query, topks)
                 hits_vecs_sent.extend(hits_vec)
             
             try:

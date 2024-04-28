@@ -191,6 +191,6 @@ if __name__=='__main__':
             recall = len(set(ground_truth).intersection(set(output)))
             gt_counts[topk] += min(len(ground_truth), topk)
             pred_count[topk] += recall
-
+    
     for topk in topks:
         print(f"Top-{topk}: {pred_count[topk]/gt_counts[topk]}")
