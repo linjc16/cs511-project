@@ -192,7 +192,7 @@ if __name__=='__main__':
                     scores_word_disease[pmid] + scores_sent_number[pmid] + scores_sent_treatment[pmid] + 
                     scores_word_treatment[pmid]
                 )
-
+            
             # sort the scores_merge, from high to low
             scores_merge = dict(sorted(scores_merge.items(), key=lambda x: x[1], reverse=True))
 

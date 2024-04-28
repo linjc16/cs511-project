@@ -173,10 +173,10 @@ if __name__=='__main__':
         if i > 121:
             break
         i += 1
-
+        
         query = value['query']
         ground_truth = value['pmid']
-        
+
         hits = qdrant.search(
             collection_name="clinical_trials_mv",
             query_vector=openai_client.embeddings.create(
